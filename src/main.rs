@@ -1,6 +1,7 @@
 use std::{fs, path::PathBuf, time::SystemTime};
 
 use chrono::{DateTime, Local};
+use save::Save;
 
 mod save;
 
@@ -49,6 +50,9 @@ struct SotfApp {
 
     /// The list of possible steam IDs.
     steam_ids: Vec<String>,
+
+    /// The current save in-memory.
+    save: Option<Save>,
 }
 
 impl SotfApp {
@@ -124,12 +128,17 @@ impl SotfApp {
 
         self.saves = Some(saves);
     }
-}
 
-impl eframe::App for SotfApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    pub fn read_save(&mut self) {
+        self.save = Some(
+            Save::read(self.save_type_dir().join(self.save_name.as_ref().unwrap()))
+                .expect("unable to read save data"),
+        );
+    }
+
+    pub fn render_save_selector(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Save Selector");
+            ui.heading("Save selector");
 
             if self.steam_id.is_none() {
                 ui.label("Multiple Steam IDs found. Select one.");
@@ -168,6 +177,7 @@ impl eframe::App for SotfApp {
                         if ui.button(name).clicked() {
                             self.save_name = Some(name.to_owned());
                             self.saves = None;
+                            self.read_save();
                             break;
                         }
 
@@ -175,7 +185,34 @@ impl eframe::App for SotfApp {
                         ui.add_space(10.0);
                     }
                 });
+            } else {
+                ui.spinner();
             }
         });
+    }
+}
+
+impl eframe::App for SotfApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Some(save) = &self.save {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.heading("Save editor");
+                egui::Grid::new("save_editor").show(ui, |ui| {
+                    ui.label("Kelvin");
+                    if ui
+                        .add_enabled(false, egui::Button::new("Resurrect Kelvin"))
+                        .clicked()
+                    {
+                        // ...
+                    }
+                    ui.end_row();
+                    ui.label("Virginia");
+                    ui.label("Virginia settings");
+                    ui.end_row();
+                });
+            });
+        } else {
+            self.render_save_selector(ctx);
+        }
     }
 }
