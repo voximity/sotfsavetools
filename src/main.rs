@@ -181,18 +181,30 @@ impl SotfApp {
             } else if self.save_name.is_none() {
                 ui.label("Select a save.");
 
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    for (name, time) in self.saves.as_ref().unwrap().iter() {
-                        if ui.button(name).clicked() {
-                            self.save_name = Some(name.to_owned());
-                            self.saves = None;
-                            self.read_save();
-                            break;
-                        }
+                egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
+                    egui::Grid::new("save_selector_grid").num_columns(2).striped(true).spacing([20.0, 4.0]).show(ui, |ui| {
+                        for (name, time) in self.saves.as_ref().unwrap().iter() {
+                            if ui.button(name).clicked() {
+                                self.save_name = Some(name.to_owned());
+                                self.saves = None;
+                                self.read_save();
+                                break;
+                            }
 
-                        ui.label(format!("{}", DateTime::<Local>::from(time.to_owned()).format("%B %-d, %Y @ %-I:%M:%S %p")));
-                        ui.add_space(10.0);
-                    }
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    format!(
+                                        "{}",
+                                        DateTime::<Local>::from(time.to_owned())
+                                            .format("%B %-d, %Y @ %-I:%M:%S %p")
+                                    )
+                                );
+                                ui.allocate_space(ui.available_size());
+                            });
+
+                            ui.end_row();
+                        }
+                    });
                 });
             } else {
                 ui.spinner();
