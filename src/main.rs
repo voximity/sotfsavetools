@@ -4,6 +4,7 @@ use chrono::{DateTime, Local};
 use save::Save;
 
 mod save;
+mod tools;
 
 fn main() {
     eframe::run_native(

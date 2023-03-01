@@ -15,14 +15,26 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct GenericData<T> {
-    version: String,
-    data: T,
+    pub version: String,
+    pub data: T,
 }
 
 #[derive(Debug, Clone)]
 pub struct Save {
     pub game_state: GenericData<GameState>,
     pub save_data: GenericData<SaveData>,
+}
+
+macro_rules! get_type_id_methods {
+    ($name:ident , $name_mut:ident : $type:ty => $($p:ident).*) => {
+        pub fn $name(&self, type_id: u32) -> Option<&$type> {
+            self.$($p.)+iter().find(|e| e.type_id == type_id)
+        }
+
+        pub fn $name_mut(&mut self, type_id: u32) -> Option<&mut $type> {
+            self.$($p.)+iter_mut().find(|e| e.type_id == type_id)
+        }
+    };
 }
 
 impl Save {
@@ -61,85 +73,15 @@ impl Save {
         Ok(())
     }
 
-    pub fn actor(&self, type_id: u32) -> Option<&Actor> {
-        self.save_data
-            .data
-            .vail_world_sim
-            .actors
-            .iter()
-            .find(|a| a.type_id == type_id)
-    }
+    get_type_id_methods!(
+        actor, actor_mut: Actor =>
+            save_data.data.vail_world_sim.actors
+    );
 
-    pub fn actor_mut(&mut self, type_id: u32) -> Option<&mut Actor> {
-        self.save_data
-            .data
-            .vail_world_sim
-            .actors
-            .iter_mut()
-            .find(|a| a.type_id == type_id)
-    }
-
-    pub fn kill_stat(&self, type_id: u32) -> Option<&KillStat> {
-        self.save_data
-            .data
-            .vail_world_sim
-            .kill_stats_list
-            .iter()
-            .find(|s| s.type_id == type_id)
-    }
-
-    pub fn kill_stat_mut(&mut self, type_id: u32) -> Option<&mut KillStat> {
-        self.save_data
-            .data
-            .vail_world_sim
-            .kill_stats_list
-            .iter_mut()
-            .find(|s| s.type_id == type_id)
-    }
-
-    pub fn is_kelvin_dead(&self) -> bool {
-        // TODO: cache this, maybe turn it into a macro
-
-        if self.game_state.data.game_state.is_robby_dead {
-            return true;
-        }
-
-        if let Some(kelvin) = self.actor(9) {
-            if kelvin.state == 6 {
-                return true;
-            }
-
-            if let Some(ActorStats { health, .. }) = kelvin.stats {
-                if health <= 0.0 {
-                    return true;
-                }
-            }
-        }
-
-        if let Some(kill) = self.kill_stat(9) {
-            return kill.player_killed != 0;
-        }
-
-        false
-    }
-
-    pub fn resurrect_kelvin(&mut self) {
-        // set game state flag
-        self.game_state.data.game_state.is_robby_dead = false;
-
-        // find kelvin's actor
-        if let Some(kelvin) = self.actor_mut(9) {
-            kelvin.state = 2;
-            if let Some(stats) = &mut kelvin.stats {
-                stats.health = 100.0;
-            }
-        }
-
-        // remove the player killed stat, if any
-        if let Some(kill) = self.kill_stat_mut(9) {
-            kill.player_killed = 0;
-        }
-    }
+    get_type_id_methods!(
+        kill_stat, kill_stat_mut: KillStat =>
+            save_data.data.vail_world_sim.kill_stats_list
+    );
 
     pub fn resurrect_virginia(&mut self) {
         // set game state flag
