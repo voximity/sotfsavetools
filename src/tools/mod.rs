@@ -1,15 +1,18 @@
-use crate::save::Save;
-
-use self::kelvin::ToolKelvin;
-
 mod kelvin;
+mod virginia;
 
-pub trait SaveTool {
+use self::{kelvin::ToolKelvin, virginia::ToolVirginia};
+use crate::save::Save;
+use std::fmt::Debug;
+
+pub trait SaveTool: Debug + Clone {
     fn new(save: &Save) -> Self;
+    fn render(&mut self, save: &mut Save, ui: &mut egui::Ui);
 }
 
 macro_rules! save_tools {
     ($($name:ident => $type:ty),*,) => {
+        #[derive(Debug, Clone)]
         pub struct SaveTools {
             $(pub $name: $type,)+
         }
@@ -26,4 +29,5 @@ macro_rules! save_tools {
 
 save_tools!(
     kelvin => ToolKelvin,
+    virginia => ToolVirginia,
 );

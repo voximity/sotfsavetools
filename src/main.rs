@@ -1,7 +1,9 @@
 use std::{fs, path::PathBuf, time::SystemTime};
 
 use chrono::{DateTime, Local};
+use egui::vec2;
 use save::Save;
+use tools::{SaveTool, SaveTools};
 
 mod save;
 mod tools;
@@ -10,6 +12,8 @@ fn main() {
     eframe::run_native(
         "Sons Of The Forest Save Tools",
         eframe::NativeOptions {
+            resizable: false,
+            initial_window_size: Some(vec2(400.0, 600.0)),
             ..Default::default()
         },
         Box::new(|cc| Box::new(SotfApp::new(cc))),
@@ -54,6 +58,9 @@ struct SotfApp {
 
     /// The current save in-memory.
     save: Option<Save>,
+
+    /// Save tools, after the save has been loaded.
+    tools: Option<SaveTools>,
 }
 
 impl SotfApp {
@@ -131,10 +138,11 @@ impl SotfApp {
     }
 
     pub fn read_save(&mut self) {
-        self.save = Some(
-            Save::read(self.save_type_dir().join(self.save_name.as_ref().unwrap()))
-                .expect("unable to read save data"),
-        );
+        let save = Save::read(self.save_type_dir().join(self.save_name.as_ref().unwrap()))
+            .expect("unable to read save data");
+
+        self.tools = Some(SaveTools::new(&save));
+        self.save = Some(save);
     }
 
     pub fn render_save_selector(&mut self, ctx: &egui::Context) {
@@ -195,22 +203,40 @@ impl SotfApp {
 
 impl eframe::App for SotfApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if let Some(save) = &self.save {
+        if self.save.is_some() {
             egui::CentralPanel::default().show(ctx, |ui| {
                 ui.heading("Save editor");
-                egui::Grid::new("save_editor").show(ui, |ui| {
-                    ui.label("Kelvin");
-                    if ui
-                        .add_enabled(false, egui::Button::new("Resurrect Kelvin"))
-                        .clicked()
-                    {
-                        // ...
-                    }
-                    ui.end_row();
-                    ui.label("Virginia");
-                    ui.label("Virginia settings");
-                    ui.end_row();
-                });
+                egui::Grid::new("save_editor")
+                    .num_columns(2)
+                    .spacing([40.0, 4.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        let tools = self.tools.as_mut().unwrap();
+
+                        // ToolKelvin
+                        ui.label("Kelvin");
+                        tools.kelvin.render(self.save.as_mut().unwrap(), ui);
+                        ui.end_row();
+
+                        // ToolVirginia
+                        ui.label("Virginia");
+                        tools.virginia.render(self.save.as_mut().unwrap(), ui);
+                        ui.end_row();
+
+                        // Save changes
+                        ui.label("Save");
+                        if ui.button("Save changes").clicked() {
+                            let dir = self.save_type_dir().join(self.save_name.as_ref().unwrap());
+                            self.save
+                                .as_ref()
+                                .unwrap()
+                                .write(dir)
+                                .expect("failed to save changes");
+
+                            println!("saved changes");
+                        }
+                        ui.end_row();
+                    });
             });
         } else {
             self.render_save_selector(ctx);

@@ -5,11 +5,11 @@ use crate::save::{ActorStats, Save};
 use super::SaveTool;
 
 #[derive(Debug, Clone, Default)]
-pub struct ToolKelvin {
+pub struct ToolVirginia {
     is_dead: bool,
 }
 
-impl SaveTool for ToolKelvin {
+impl SaveTool for ToolVirginia {
     fn new(save: &Save) -> Self {
         let mut tool = Self::default();
         tool.fetch_is_dead(save);
@@ -26,26 +26,26 @@ impl SaveTool for ToolKelvin {
             }
 
             if !self.is_dead {
-                ui.label("Kelvin is not dead.");
+                ui.label("Virginia is not dead.");
             }
         });
     }
 }
 
-impl ToolKelvin {
+impl ToolVirginia {
     pub fn fetch_is_dead(&mut self, save: &Save) {
-        if save.game_state.data.game_state.is_robby_dead {
+        if save.game_state.data.game_state.is_virginia_dead {
             self.is_dead = true;
             return;
         }
 
-        if let Some(kelvin) = save.actor(9) {
-            if kelvin.state == 6 {
+        if let Some(virginia) = save.actor(10) {
+            if virginia.state == 6 {
                 self.is_dead = true;
                 return;
             }
 
-            if let Some(ActorStats { health, .. }) = kelvin.stats {
+            if let Some(ActorStats { health, .. }) = virginia.stats {
                 if health <= 0.0 {
                     self.is_dead = true;
                     return;
@@ -53,7 +53,7 @@ impl ToolKelvin {
             }
         }
 
-        if let Some(kill) = save.kill_stat(9) {
+        if let Some(kill) = save.kill_stat(10) {
             if kill.player_killed != 0 {
                 self.is_dead = true;
                 return;
@@ -65,18 +65,18 @@ impl ToolKelvin {
 
     pub fn resurrect(&mut self, save: &mut Save) {
         // set game state flag
-        save.game_state.data.game_state.is_robby_dead = false;
+        save.game_state.data.game_state.is_virginia_dead = false;
 
-        // find kelvin's actor
-        if let Some(kelvin) = save.actor_mut(9) {
-            kelvin.state = 2;
-            if let Some(stats) = &mut kelvin.stats {
-                stats.health = 100.0;
+        // find virginia's actor
+        if let Some(virginia) = save.actor_mut(10) {
+            virginia.state = 2;
+            if let Some(stats) = &mut virginia.stats {
+                stats.health = 120.0;
             }
         }
 
         // remove the player killed stat, if any
-        if let Some(kill) = save.kill_stat_mut(9) {
+        if let Some(kill) = save.kill_stat_mut(10) {
             kill.player_killed = 0;
         }
 

@@ -61,7 +61,7 @@ impl Save {
     pub fn write(&self, path: PathBuf) -> io::Result<()> {
         macro_rules! write_file {
             ($name:ident => $file:literal) => {{
-                let file = File::open(path.join($file))?;
+                let file = File::create(path.join($file))?;
                 serde_json::to_writer(file, &self.$name)
                     .expect(concat!("failed to write", stringify!($name)));
             };};
@@ -82,22 +82,4 @@ impl Save {
         kill_stat, kill_stat_mut: KillStat =>
             save_data.data.vail_world_sim.kill_stats_list
     );
-
-    pub fn resurrect_virginia(&mut self) {
-        // set game state flag
-        self.game_state.data.game_state.is_virginia_dead = false;
-
-        // find virginia's actor
-        if let Some(virginia) = self.actor_mut(10) {
-            virginia.state = 2;
-            if let Some(stats) = &mut virginia.stats {
-                stats.health = 120.0;
-            }
-        }
-
-        // remove the player killed stat, if any
-        if let Some(kill) = self.kill_stat_mut(10) {
-            kill.player_killed = 0;
-        }
-    }
 }
