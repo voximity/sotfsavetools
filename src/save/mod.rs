@@ -83,3 +83,75 @@ impl Save {
             save_data.data.vail_world_sim.kill_stats_list
     );
 }
+
+mod f32_nan {
+    use serde::{de::Visitor, Deserializer, Serializer};
+
+    pub struct F32NanVisitor;
+
+    impl<'de> Visitor<'de> for F32NanVisitor {
+        type Value = f32;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a float or \"NaN\"")
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            if v == "NaN" {
+                Ok(f32::NAN)
+            } else {
+                Err(E::custom(format!("non-NaN f32 string: {}", v)))
+            }
+        }
+
+        fn visit_i8<E>(self, v: i8) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(v as f32)
+        }
+
+        fn visit_i16<E>(self, v: i16) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(v as f32)
+        }
+
+        fn visit_i32<E>(self, v: i32) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(v as f32)
+        }
+
+        fn visit_f32<E>(self, v: f32) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(v)
+        }
+
+        fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(v as f32)
+        }
+    }
+
+    pub fn serialize<S: Serializer>(n: &f32, s: S) -> Result<S::Ok, S::Error> {
+        if n.is_nan() {
+            s.serialize_str("NaN")
+        } else {
+            s.serialize_f32(*n)
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
+        d.deserialize_f32(F32NanVisitor)
+    }
+}
