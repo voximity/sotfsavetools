@@ -44,7 +44,7 @@ impl Save {
                 let $name: GenericData<$type> = {
                     let file = File::open(path.join($file))?;
                     serde_json::from_reader(BufReader::new(file))
-                        .expect(concat!("failed to parse", stringify!($name)))
+                        .expect(concat!("failed to parse ", stringify!($name)))
                 };
             };
         }
@@ -152,6 +152,6 @@ mod f32_nan {
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
-        d.deserialize_f32(F32NanVisitor)
+        d.deserialize_any(F32NanVisitor)
     }
 }

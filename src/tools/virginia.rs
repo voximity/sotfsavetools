@@ -46,7 +46,7 @@ impl ToolVirginia {
             }
 
             if let Some(ActorStats { health, .. }) = virginia.stats {
-                if health <= 0.0 {
+                if health.is_nan() || health <= 0.0 {
                     self.is_dead = true;
                     return;
                 }

@@ -46,7 +46,7 @@ impl ToolKelvin {
             }
 
             if let Some(ActorStats { health, .. }) = kelvin.stats {
-                if health <= 0.0 {
+                if health.is_nan() || health <= 0.0 {
                     self.is_dead = true;
                     return;
                 }
