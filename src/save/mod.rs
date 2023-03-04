@@ -2,6 +2,7 @@ mod game_state;
 mod save_data;
 
 use std::{
+    fmt::Display,
     fs::File,
     io::{self, BufReader},
     path::PathBuf,
@@ -11,6 +12,8 @@ pub use game_state::*;
 pub use save_data::*;
 
 use serde::{Deserialize, Serialize};
+
+use crate::tools::SaveTools;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -23,6 +26,47 @@ pub struct GenericData<T> {
 pub struct Save {
     pub game_state: GenericData<GameState>,
     pub save_data: GenericData<SaveData>,
+}
+
+/// A save type.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum SaveType {
+    Singleplayer,
+    Multiplayer,
+}
+
+impl Display for SaveType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            SaveType::Singleplayer => "Singleplayer",
+            SaveType::Multiplayer => "Multiplayer",
+        })
+    }
+}
+
+impl SaveType {
+    pub fn as_file(&self) -> &'static str {
+        match self {
+            Self::Singleplayer => "SinglePlayer",
+            Self::Multiplayer => "Multiplayer",
+        }
+    }
+}
+
+pub type SelectedSave = (String, SaveType, String);
+
+#[derive(Debug, Clone)]
+pub struct SaveInstance {
+    pub path: SelectedSave,
+    pub save: Save,
+    pub tools: SaveTools,
+}
+
+impl SaveInstance {
+    pub fn new(path: SelectedSave, save: Save) -> Self {
+        let tools = SaveTools::new(&save);
+        Self { path, save, tools }
+    }
 }
 
 macro_rules! get_type_id_methods {

@@ -1,9 +1,15 @@
-use std::{fs, path::PathBuf, time::SystemTime};
+use std::{
+    collections::HashMap,
+    fs,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+    thread,
+    time::SystemTime,
+};
 
 use chrono::{DateTime, Local};
-use egui::vec2;
-use save::Save;
-use tools::{SaveTool, SaveTools};
+use save::{Save, SaveInstance, SaveType, SelectedSave};
+use tools::SaveTool;
 
 mod save;
 mod tools;
@@ -11,56 +17,51 @@ mod tools;
 fn main() {
     eframe::run_native(
         "Sons Of The Forest Save Tools",
-        eframe::NativeOptions {
-            resizable: false,
-            initial_window_size: Some(vec2(400.0, 600.0)),
-            ..Default::default()
-        },
+        eframe::NativeOptions::default(),
         Box::new(|cc| Box::new(SotfApp::new(cc))),
     )
     .unwrap();
 }
 
-#[derive(Debug, Clone, Copy)]
-enum SaveType {
-    Singleplayer,
-    Multiplayer,
+/// An asynchronous resource. Effectively an Option<T> with an extra
+/// Loading variant.
+#[derive(Debug, Clone, Default)]
+enum AsyncOption<T> {
+    #[default]
+    None,
+    Loading,
+    Some(T),
 }
 
-impl From<SaveType> for &'static str {
-    fn from(value: SaveType) -> Self {
+impl<T> From<AsyncOption<T>> for Option<T> {
+    fn from(value: AsyncOption<T>) -> Self {
         match value {
-            SaveType::Singleplayer => "SinglePlayer",
-            SaveType::Multiplayer => "Multiplayer",
+            AsyncOption::Some(v) => Some(v),
+            _ => None,
         }
     }
 }
 
+/// All associated saves for a Steam ID.
+#[derive(Default, Clone)]
+struct SteamIdSaves {
+    /// The Steam ID corresponding to the child saves.
+    id: String,
+
+    /// The saves, categorized by save type (singleplayer/multiplayer).
+    saves: HashMap<SaveType, Vec<(String, SystemTime)>>,
+}
+
+/// The egui app.
 #[derive(Clone, Default)]
 struct SotfApp {
     /// The save directory.
     save_dir: PathBuf,
 
-    /// The currently selected steam ID.
-    steam_id: Option<String>,
-
-    /// The currently selected save type.
-    save_type: Option<SaveType>,
-
-    /// The currently selected save name.
-    save_name: Option<String>,
-
-    /// The list of saves to select.
-    saves: Option<Vec<(String, SystemTime)>>,
-
-    /// The list of possible steam IDs.
-    steam_ids: Vec<String>,
+    saves: Vec<SteamIdSaves>,
 
     /// The current save in-memory.
-    save: Option<Save>,
-
-    /// Save tools, after the save has been loaded.
-    tools: Option<SaveTools>,
+    save: Arc<RwLock<AsyncOption<SaveInstance>>>,
 }
 
 impl SotfApp {
@@ -102,156 +103,199 @@ impl SotfApp {
             "Sons Of The Forest game data exists, but there is no save data"
         );
 
+        let steam_id_saves = steam_ids
+            .into_iter()
+            .map(|id| {
+                let mut saves = HashMap::new();
+
+                for save_type in [SaveType::Singleplayer, SaveType::Multiplayer] {
+                    let type_path = save_dir.join(&id).join(save_type.as_file());
+                    let mut type_saves = vec![];
+
+                    if !type_path.exists() {
+                        continue;
+                    }
+
+                    // grab all the save folders
+                    type_saves.extend(
+                        fs::read_dir(type_path)
+                            .unwrap()
+                            .filter_map(Result::ok)
+                            .filter(|e| e.file_type().unwrap().is_dir())
+                            .map(|e| {
+                                (
+                                    e.file_name().into_string().unwrap(),
+                                    e.metadata().unwrap().modified().unwrap(),
+                                )
+                            }),
+                    );
+
+                    type_saves.sort_by(|(_, a), (_, b)| b.cmp(a));
+
+                    saves.insert(save_type, type_saves);
+                }
+
+                SteamIdSaves { id, saves }
+            })
+            .collect::<Vec<_>>();
+
         Self {
             save_dir,
-            steam_id: match steam_ids.len() {
-                1 => Some(steam_ids.first().unwrap().to_owned()),
-                _ => None,
-            },
-            steam_ids,
+            saves: steam_id_saves,
             ..Default::default()
         }
     }
 
-    pub fn save_type_dir(&self) -> PathBuf {
-        self.save_dir
-            .join(self.steam_id.to_owned().unwrap())
-            .join(<&'static str>::from(self.save_type.unwrap()))
+    /// The save path for a particular selected save.
+    pub fn save_path(&self, (id, save_type, name): &SelectedSave) -> Option<PathBuf> {
+        Some(self.save_dir.join(id).join(save_type.as_file()).join(name))
     }
 
-    pub fn fetch_saves(&mut self) {
-        let mut saves = fs::read_dir(self.save_type_dir())
-            .unwrap()
-            .filter_map(Result::ok)
-            .filter(|entry| entry.file_type().unwrap().is_dir())
-            .map(|entry| {
-                (
-                    entry.file_name().into_string().unwrap(),
-                    entry.metadata().unwrap().modified().unwrap(),
-                )
-            })
-            .collect::<Vec<_>>();
+    /// Read the save on another thread, updating the save mutex.
+    pub fn read_save_async(&self, selected: SelectedSave) {
+        let mutex = Arc::clone(&self.save);
+        let save_path = match self.save_path(&selected) {
+            Some(s) => s,
+            None => return,
+        };
 
-        saves.sort_by(|(_, a), (_, b)| b.cmp(a));
+        // the lock should drop immediately after this statement
+        *mutex.write().unwrap() = AsyncOption::Loading;
 
-        self.saves = Some(saves);
+        thread::spawn(move || {
+            let save = Save::read(save_path).expect("failed to read save");
+
+            let mut lock = mutex.write().unwrap();
+            *lock = AsyncOption::Some(SaveInstance::new(selected, save));
+        });
     }
 
-    pub fn read_save(&mut self) {
-        let save = Save::read(self.save_type_dir().join(self.save_name.as_ref().unwrap()))
-            .expect("unable to read save data");
+    /// Write the save on another thread.
+    pub fn write_save_async(&self, selected: SelectedSave) {
+        // TODO: it would be nice if this did not hang the main thread
+        // TODO: it does because the save editor takes a write lock
+        // TODO: in other words, make the save editor *not* take a write lock
+        // TODO: and let the individual save tools do the locking on their own
 
-        self.tools = Some(SaveTools::new(&save));
-        self.save = Some(save);
-    }
+        let mutex = Arc::clone(&self.save);
+        let save_path = match self.save_path(&selected) {
+            Some(s) => s,
+            None => return,
+        };
 
-    pub fn render_save_selector(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Save selector");
-
-            if self.steam_id.is_none() {
-                ui.label("Multiple Steam IDs found. Select one.");
-                ui.add_space(10.0);
-
-                for (i, id) in self.steam_ids.iter().enumerate() {
-                    if ui.button(id).clicked() {
-                        self.steam_id = Some(id.to_owned());
-                    }
-
-                    if i == 0 {
-                        ui.label("This ID has more recent saves; this might be what you are looking for.");
-                    }
-
-                    ui.add_space(10.0);
-                }
-            } else if self.save_type.is_none() {
-                ui.label("Select between the two save types.");
-
-                ui.horizontal(|ui| {
-                    if ui.button("Singleplayer").clicked() {
-                        self.save_type = Some(SaveType::Singleplayer);
-                        self.fetch_saves();
-                    }
-
-                    if ui.button("Multiplayer").clicked() {
-                        self.save_type = Some(SaveType::Multiplayer);
-                        self.fetch_saves();
-                    }
-                });
-            } else if self.save_name.is_none() {
-                ui.label("Select a save.");
-
-                egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
-                    egui::Grid::new("save_selector_grid").num_columns(2).striped(true).spacing([20.0, 4.0]).show(ui, |ui| {
-                        for (name, time) in self.saves.as_ref().unwrap().iter() {
-                            if ui.button(name).clicked() {
-                                self.save_name = Some(name.to_owned());
-                                self.saves = None;
-                                self.read_save();
-                                break;
-                            }
-
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    format!(
-                                        "{}",
-                                        DateTime::<Local>::from(time.to_owned())
-                                            .format("%B %-d, %Y @ %-I:%M:%S %p")
-                                    )
-                                );
-                                ui.allocate_space(ui.available_size());
-                            });
-
-                            ui.end_row();
-                        }
-                    });
-                });
-            } else {
-                ui.spinner();
+        thread::spawn(move || {
+            let lock = mutex.read().unwrap();
+            if let AsyncOption::Some(ref instance) = *lock {
+                instance
+                    .save
+                    .write(save_path)
+                    .expect("failed to write save");
             }
         });
     }
 }
 
+macro_rules! format_time {
+    ($var:expr) => {
+        format!(
+            "{}",
+            DateTime::<Local>::from($var).format("%B %-d, %Y @ %-I:%M:%S %p")
+        )
+    };
+}
+
 impl eframe::App for SotfApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.save.is_some() {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                ui.heading("Save editor");
-                egui::Grid::new("save_editor")
-                    .num_columns(2)
-                    .spacing([40.0, 4.0])
-                    .striped(true)
-                    .show(ui, |ui| {
-                        let tools = self.tools.as_mut().unwrap();
+        let selected_save = {
+            match *self.save.read().unwrap() {
+                AsyncOption::Some(SaveInstance { ref path, .. }) => Some(path.to_owned()),
+                _ => None,
+            }
+        };
 
-                        // ToolKelvin
-                        ui.label("Kelvin");
-                        tools.kelvin.render(self.save.as_mut().unwrap(), ui);
-                        ui.end_row();
+        egui::SidePanel::left("panel_save_selector").show(ctx, |ui| {
+            ui.heading("Save selector");
+            ui.label("Select a save below.");
 
-                        // ToolVirginia
-                        ui.label("Virginia");
-                        tools.virginia.render(self.save.as_mut().unwrap(), ui);
-                        ui.end_row();
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    for id_saves in self.saves.iter() {
+                        egui::CollapsingHeader::new(&id_saves.id)
+                            .default_open(self.saves.len() == 1)
+                            .show(ui, |ui| {
+                                for (save_type, saves) in id_saves.saves.iter() {
+                                    ui.collapsing(format!("{}", save_type), |ui| {
+                                        for (name, time) in saves.iter() {
+                                            if ui
+                                                .add_enabled(
+                                                    selected_save
+                                                        .as_ref()
+                                                        .map_or(true, |(_, _, sel_name)| {
+                                                            sel_name != name
+                                                        }),
+                                                    egui::Button::new(name),
+                                                )
+                                                .on_hover_text(format_time!(time.to_owned()))
+                                                .clicked()
+                                            {
+                                                self.read_save_async((
+                                                    id_saves.id.to_owned(),
+                                                    *save_type,
+                                                    name.to_owned(),
+                                                ));
+                                            }
+                                        }
+                                    });
+                                }
+                            });
+                    }
+                });
+        });
 
-                        // Save changes
-                        ui.label("Save");
-                        if ui.button("Save changes").clicked() {
-                            let dir = self.save_type_dir().join(self.save_name.as_ref().unwrap());
-                            self.save
-                                .as_ref()
-                                .unwrap()
-                                .write(dir)
-                                .expect("failed to save changes");
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let mutex = Arc::clone(&self.save);
+            let mut lock = mutex.write().unwrap();
 
-                            println!("saved changes");
-                        }
-                        ui.end_row();
-                    });
-            });
-        } else {
-            self.render_save_selector(ctx);
-        }
+            match *lock {
+                AsyncOption::None => {
+                    ui.with_layout(
+                        egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                        |ui| {
+                            ui.heading("Please select a save.");
+                        },
+                    );
+                }
+                AsyncOption::Loading => {
+                    ui.with_layout(
+                        egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                        egui::Ui::spinner,
+                    );
+                }
+                AsyncOption::Some(ref mut save) => {
+                    ui.heading("Save editor");
+
+                    egui::Grid::new("save_editor")
+                        .num_columns(2)
+                        .spacing([40.0, 4.0])
+                        .striped(true)
+                        .show(ui, |ui| {
+                            ui.label("Kelvin");
+                            save.tools.kelvin.render(&mut save.save, ui);
+                            ui.end_row();
+
+                            ui.label("Virginia");
+                            save.tools.virginia.render(&mut save.save, ui);
+                            ui.end_row();
+
+                            ui.label("Save");
+                            if ui.button("Save changes").clicked() {
+                                self.write_save_async(selected_save.unwrap());
+                            }
+                            ui.end_row();
+                        });
+                }
+            }
+        });
     }
 }
