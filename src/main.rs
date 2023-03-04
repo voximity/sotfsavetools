@@ -2,7 +2,10 @@ use std::{
     collections::HashMap,
     fs,
     path::PathBuf,
-    sync::{Arc, RwLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, RwLock,
+    },
     thread,
     time::SystemTime,
 };
@@ -62,6 +65,9 @@ struct SotfApp {
 
     /// The current save in-memory.
     save: Arc<RwLock<AsyncOption<SaveInstance>>>,
+
+    /// Whether or not we are currently saving changes.
+    save_writing: Arc<AtomicBool>,
 }
 
 impl SotfApp {
@@ -172,18 +178,16 @@ impl SotfApp {
 
     /// Write the save on another thread.
     pub fn write_save_async(&self, selected: SelectedSave) {
-        // TODO: it would be nice if this did not hang the main thread
-        // TODO: it does because the save editor takes a write lock
-        // TODO: in other words, make the save editor *not* take a write lock
-        // TODO: and let the individual save tools do the locking on their own
-
         let mutex = Arc::clone(&self.save);
+        let loading = Arc::clone(&self.save_writing);
         let save_path = match self.save_path(&selected) {
             Some(s) => s,
             None => return,
         };
 
         thread::spawn(move || {
+            loading.store(true, Ordering::Relaxed);
+
             let lock = mutex.read().unwrap();
             if let AsyncOption::Some(ref instance) = *lock {
                 instance
@@ -191,6 +195,8 @@ impl SotfApp {
                     .write(save_path)
                     .expect("failed to write save");
             }
+
+            loading.store(false, Ordering::Relaxed);
         });
     }
 }
@@ -254,19 +260,26 @@ impl eframe::App for SotfApp {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            let mutex = Arc::clone(&self.save);
+            if self.save_writing.load(Ordering::Relaxed) {
+                ui.with_layout(
+                    egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                    egui::Ui::spinner,
+                );
+                return;
+            }
 
-            // TODO: this should not take a write lock
-            // TODO: let individual save tools take write locks
-            let mut lock = mutex.write().unwrap();
+            // this would block if we were writing a save to a file (we have a read lock)
+            // and somehow `self.save_writing` was not true
+            //
+            // the above statement returns early so we don't acquire this write lock while
+            // writing the save out
+            let mut lock = self.save.write().unwrap();
 
             match *lock {
                 AsyncOption::None => {
                     ui.with_layout(
                         egui::Layout::centered_and_justified(egui::Direction::TopDown),
-                        |ui| {
-                            ui.heading("Please select a save.");
-                        },
+                        |ui| ui.heading("Please select a save."),
                     );
                 }
                 AsyncOption::Loading => {
