@@ -1989,11 +1989,12 @@ dependencies = [
 
 [[package]]
 name = "sotfsavetools"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "chrono",
  "eframe",
  "egui",
+ "parking_lot",
  "serde",
  "serde_json",
  "serde_with",

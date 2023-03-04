@@ -4,13 +4,14 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, RwLock,
+        Arc,
     },
     thread,
     time::SystemTime,
 };
 
 use chrono::{DateTime, Local};
+use parking_lot::RwLock;
 use save::{Save, SaveInstance, SaveType, SelectedSave};
 use tools::SaveTool;
 
@@ -165,14 +166,10 @@ impl SotfApp {
             None => return,
         };
 
-        // the lock should drop immediately after this statement
-        *mutex.write().unwrap() = AsyncOption::Loading;
-
         thread::spawn(move || {
+            *mutex.write() = AsyncOption::Loading;
             let save = Save::read(save_path).expect("failed to read save");
-
-            let mut lock = mutex.write().unwrap();
-            *lock = AsyncOption::Some(SaveInstance::new(selected, save));
+            *mutex.write() = AsyncOption::Some(SaveInstance::new(selected, save));
         });
     }
 
@@ -188,8 +185,7 @@ impl SotfApp {
         thread::spawn(move || {
             loading.store(true, Ordering::Relaxed);
 
-            let lock = mutex.read().unwrap();
-            if let AsyncOption::Some(ref instance) = *lock {
+            if let AsyncOption::Some(ref instance) = *mutex.read() {
                 instance
                     .save
                     .write(save_path)
@@ -212,52 +208,53 @@ macro_rules! format_time {
 
 impl eframe::App for SotfApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let selected_save = {
-            match *self.save.read().unwrap() {
-                AsyncOption::Some(SaveInstance { ref path, .. }) => Some(path.to_owned()),
+        {
+            let lock = self.save.read();
+            let selected_save = match *lock {
+                AsyncOption::Some(SaveInstance { ref path, .. }) => Some(path),
                 _ => None,
-            }
-        };
+            };
 
-        egui::SidePanel::left("panel_save_selector").show(ctx, |ui| {
-            ui.heading("Save selector");
-            ui.label("Select a save below.");
+            egui::SidePanel::left("panel_save_selector").show(ctx, |ui| {
+                ui.heading("Save selector");
+                ui.label("Select a save below.");
 
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    for id_saves in self.saves.iter() {
-                        egui::CollapsingHeader::new(&id_saves.id)
-                            .default_open(self.saves.len() == 1)
-                            .show(ui, |ui| {
-                                for (save_type, saves) in id_saves.saves.iter() {
-                                    ui.collapsing(format!("{}", save_type), |ui| {
-                                        for (name, time) in saves.iter() {
-                                            if ui
-                                                .add_enabled(
-                                                    selected_save
-                                                        .as_ref()
-                                                        .map_or(true, |(_, _, sel_name)| {
-                                                            sel_name != name
-                                                        }),
-                                                    egui::Button::new(name),
-                                                )
-                                                .on_hover_text(format_time!(time.to_owned()))
-                                                .clicked()
-                                            {
-                                                self.read_save_async((
-                                                    id_saves.id.to_owned(),
-                                                    *save_type,
-                                                    name.to_owned(),
-                                                ));
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        for id_saves in self.saves.iter() {
+                            egui::CollapsingHeader::new(&id_saves.id)
+                                .default_open(self.saves.len() == 1)
+                                .show(ui, |ui| {
+                                    for (save_type, saves) in id_saves.saves.iter() {
+                                        ui.collapsing(format!("{}", save_type), |ui| {
+                                            for (name, time) in saves.iter() {
+                                                if ui
+                                                    .add_enabled(
+                                                        selected_save
+                                                            .as_ref()
+                                                            .map_or(true, |(_, _, sel_name)| {
+                                                                sel_name != name
+                                                            }),
+                                                        egui::Button::new(name),
+                                                    )
+                                                    .on_hover_text(format_time!(time.to_owned()))
+                                                    .clicked()
+                                                {
+                                                    self.read_save_async((
+                                                        id_saves.id.to_owned(),
+                                                        *save_type,
+                                                        name.to_owned(),
+                                                    ));
+                                                }
                                             }
-                                        }
-                                    });
-                                }
-                            });
-                    }
-                });
-        });
+                                        });
+                                    }
+                                });
+                        }
+                    });
+            });
+        }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.save_writing.load(Ordering::Relaxed) {
@@ -273,9 +270,7 @@ impl eframe::App for SotfApp {
             //
             // the above statement returns early so we don't acquire this write lock while
             // writing the save out
-            let mut lock = self.save.write().unwrap();
-
-            match *lock {
+            match *self.save.write() {
                 AsyncOption::None => {
                     ui.with_layout(
                         egui::Layout::centered_and_justified(egui::Direction::TopDown),
@@ -306,7 +301,7 @@ impl eframe::App for SotfApp {
 
                             ui.label("Save");
                             if ui.button("Save changes").clicked() {
-                                self.write_save_async(selected_save.unwrap());
+                                self.write_save_async(save.path.clone());
                             }
                             ui.end_row();
                         });
