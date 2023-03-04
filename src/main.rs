@@ -255,6 +255,9 @@ impl eframe::App for SotfApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             let mutex = Arc::clone(&self.save);
+
+            // TODO: this should not take a write lock
+            // TODO: let individual save tools take write locks
             let mut lock = mutex.write().unwrap();
 
             match *lock {
