@@ -115,7 +115,11 @@ impl SotfApp {
             .map(|id| {
                 let mut saves = HashMap::new();
 
-                for save_type in [SaveType::Singleplayer, SaveType::Multiplayer] {
+                for save_type in [
+                    SaveType::Singleplayer,
+                    SaveType::Multiplayer,
+                    SaveType::MultiplayerClient,
+                ] {
                     let type_path = save_dir.join(&id).join(save_type.as_file());
                     let mut type_saves = vec![];
 

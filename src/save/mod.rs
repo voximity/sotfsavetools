@@ -33,13 +33,15 @@ pub struct Save {
 pub enum SaveType {
     Singleplayer,
     Multiplayer,
+    MultiplayerClient,
 }
 
 impl Display for SaveType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             SaveType::Singleplayer => "Singleplayer",
-            SaveType::Multiplayer => "Multiplayer",
+            SaveType::Multiplayer => "Multiplayer (host)",
+            SaveType::MultiplayerClient => "Multiplayer (client)",
         })
     }
 }
@@ -49,6 +51,7 @@ impl SaveType {
         match self {
             Self::Singleplayer => "SinglePlayer",
             Self::Multiplayer => "Multiplayer",
+            Self::MultiplayerClient => "MultiplayerClient",
         }
     }
 }
