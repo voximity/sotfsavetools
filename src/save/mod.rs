@@ -1,4 +1,5 @@
 mod game_state;
+mod inventory;
 mod save_data;
 
 use std::{
@@ -9,6 +10,7 @@ use std::{
 };
 
 pub use game_state::*;
+pub use inventory::*;
 pub use save_data::*;
 
 use serde::{Deserialize, Serialize};
@@ -25,6 +27,7 @@ pub struct GenericData<T> {
 #[derive(Debug, Clone)]
 pub struct Save {
     pub game_state: GenericData<GameState>,
+    pub inventory: GenericData<PlayerInventory>,
     pub save_data: GenericData<SaveData>,
 }
 
@@ -97,10 +100,12 @@ impl Save {
         }
 
         load_file!(game_state: GameState => "GameStateSaveData.json");
+        load_file!(inventory: PlayerInventory => "PlayerInventorySaveData.json");
         load_file!(save_data: SaveData => "SaveData.json");
 
         Ok(Self {
             game_state,
+            inventory,
             save_data,
         })
     }
@@ -115,6 +120,7 @@ impl Save {
         }
 
         write_file!(game_state => "GameStateSaveData.json");
+        write_file!(inventory => "PlayerInventorySaveData.json");
         write_file!(save_data => "SaveData.json");
 
         Ok(())

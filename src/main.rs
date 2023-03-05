@@ -290,24 +290,32 @@ impl eframe::App for SotfApp {
                 AsyncOption::Some(ref mut save) => {
                     ui.heading("Save editor");
 
-                    egui::Grid::new("save_editor")
-                        .num_columns(2)
-                        .spacing([40.0, 4.0])
-                        .striped(true)
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            ui.label("Kelvin");
-                            save.tools.kelvin.render(&mut save.save, ui);
-                            ui.end_row();
+                            egui::Grid::new("save_editor")
+                                .num_columns(2)
+                                .spacing([40.0, 4.0])
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    ui.label("Kelvin");
+                                    save.tools.kelvin.render(&mut save.save, ui);
+                                    ui.end_row();
 
-                            ui.label("Virginia");
-                            save.tools.virginia.render(&mut save.save, ui);
-                            ui.end_row();
+                                    ui.label("Virginia");
+                                    save.tools.virginia.render(&mut save.save, ui);
+                                    ui.end_row();
 
-                            ui.label("Save");
-                            if ui.button("Save changes").clicked() {
-                                self.write_save_async(save.path.clone());
-                            }
-                            ui.end_row();
+                                    ui.label("Inventory");
+                                    save.tools.inventory.render(&mut save.save, ui);
+                                    ui.end_row();
+
+                                    ui.label("Save");
+                                    if ui.button("Save changes").clicked() {
+                                        self.write_save_async(save.path.clone());
+                                    }
+                                    ui.end_row();
+                                });
                         });
                 }
             }

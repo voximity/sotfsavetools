@@ -1,7 +1,8 @@
+mod inventory;
 mod kelvin;
 mod virginia;
 
-use self::{kelvin::ToolKelvin, virginia::ToolVirginia};
+use self::{inventory::ToolInventory, kelvin::ToolKelvin, virginia::ToolVirginia};
 use crate::save::Save;
 use std::fmt::Debug;
 
@@ -28,6 +29,7 @@ macro_rules! save_tools {
 }
 
 save_tools!(
+    inventory => ToolInventory,
     kelvin => ToolKelvin,
     virginia => ToolVirginia,
 );

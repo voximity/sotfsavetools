@@ -1,4 +1,5 @@
-use eframe::epaint::ahash::HashMap;
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_with::{json::JsonString, serde_as};
